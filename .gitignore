@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Streamlit / cache
+.streamlit/
+
+# Next.js demo
+web/next-demo/node_modules/
+web/next-demo/.next/
+web/next-demo/.turbo/
+web/next-demo/.env*
+web/next-demo/.vercel/
+
+# General
+.env
+.DS_Store
