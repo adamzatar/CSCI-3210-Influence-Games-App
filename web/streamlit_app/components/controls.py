@@ -1,105 +1,57 @@
-# web/streamlit_app/components/controls.py
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Set
+from typing import Any, Dict, Iterable, List, Mapping, Set, Tuple
 
 import pandas as pd
-
 import streamlit as st
 
 from src.influence_game import Action, InfluenceGame
-from web.streamlit_app.state.examples import (
-    ExampleInstance,
-    ExampleSpec,
-    build_example_instance,
-    list_example_specs,
-)
+from web.streamlit_app.state.examples import ExampleDefinition, get_all_examples
 
 
 def _sorted_nodes(nodes: Iterable[Any]) -> List[Any]:
-    """
-    Return nodes as a sorted list, using string representation as a tie breaker.
-
-    This keeps node order stable in Streamlit widgets.
-    """
+    """Return nodes as a sorted list for stable widget order."""
     return sorted(nodes, key=lambda x: str(x))
 
 
 def example_selector(
     key: str = "example_selector",
-    default_key: str = "mutual_pair",
-    allowed_keys: List[str] | None = None,
-) -> Tuple[ExampleSpec, ExampleInstance]:
-    """
-    Let the user choose which example game to work with.
-
-    Parameters
-    ----------
-    key:
-        Streamlit widget key prefix.
-    default_key:
-        Example key that should be selected by default if it exists.
-
-    Returns
-    -------
-    ExampleSpec, ExampleInstance
-        The chosen example specification and a fresh instance.
-    """
-    if allowed_keys is None:
-        allowed_keys = ["mutual_pair", "triangle"]
-
-    specs: List[ExampleSpec] = list_example_specs(keys=allowed_keys)
-    if not specs:
-        st.error("No example specifications are registered.")
-        st.stop()
-
+    default_key: str = "kuran_star",
+) -> ExampleDefinition:
+    """Let the user choose one of the canonical examples."""
+    examples = get_all_examples()
     default_index = 0
-    for idx, spec in enumerate(specs):
-        if spec.key == default_key:
+    for idx, ex in enumerate(examples):
+        if ex.key == default_key:
             default_index = idx
             break
 
-    selected_spec = st.selectbox(
+    selected = st.selectbox(
         "Example game",
-        options=specs,
+        options=examples,
         index=default_index,
-        format_func=lambda s: s.name,
+        format_func=lambda ex: ex.name,
         key=f"{key}_selectbox",
     )
 
-    if selected_spec.description:
-        st.caption(selected_spec.description)
-
-    instance = build_example_instance(selected_spec.key)
+    st.markdown(selected.description)
+    with st.expander("How this connects to the project", expanded=False):
+        st.caption(selected.notes)
 
     st.write(
-        f"Nodes: {len(list(instance.game.nodes))}, "
-        f"Edges: {len(list(instance.game.edges))}"
+        f"Nodes: {len(list(selected.game.nodes))}, "
+        f"Edges: {len(list(selected.game.edges))}"
     )
 
-    return selected_spec, instance
+    return selected
 
 
 def build_profile_from_active_nodes(
     game: InfluenceGame,
     active_nodes: Iterable[Any],
 ) -> Dict[Any, Action]:
-    """
-    Build a profile where exactly the chosen nodes are active.
-
-    Parameters
-    ----------
-    game:
-        InfluenceGame whose nodes define the profile domain.
-    active_nodes:
-        Iterable of nodes that should have action 1.
-
-    Returns
-    -------
-    dict
-        Mapping from node to action in {0, 1}.
-    """
+    """Build a profile where exactly the chosen nodes are active."""
     profile: Dict[Any, Action] = game.empty_profile(active_value=0)
     for node in active_nodes:
         if node in profile:
@@ -112,23 +64,7 @@ def forcing_set_selector(
     default_forcing_set: Set[Any] | None = None,
     key: str = "forcing_set_selector",
 ) -> Set[Any]:
-    """
-    Let the user choose which nodes belong to the forcing set.
-
-    Parameters
-    ----------
-    game:
-        InfluenceGame that provides the node set.
-    default_forcing_set:
-        Default forcing set suggestion, for example a zealot node.
-    key:
-        Streamlit widget key prefix.
-
-    Returns
-    -------
-    set
-        Selected forcing set as a set of node identifiers.
-    """
+    """Pick which nodes belong to the forcing set."""
     if default_forcing_set is None:
         default_forcing_set = set()
 
@@ -151,27 +87,7 @@ def initial_profile_selector(
     key: str = "initial_profile_selector",
 ) -> Dict[Any, Action]:
     """
-    Let the user choose the initial profile for dynamics.
-
-    The UI offers three modes:
-
-      1. Use the example's default initial profile.
-      2. All inactive.
-      3. Custom, chosen by selecting which nodes start active.
-
-    Parameters
-    ----------
-    game:
-        InfluenceGame that provides the node set.
-    default_initial_profile:
-        Example specific default initial profile suggested by the model.
-    key:
-        Streamlit widget key prefix.
-
-    Returns
-    -------
-    dict
-        Mapping from node to action in {0, 1} used as initial state.
+    Choose the initial profile: default, all inactive, or custom active nodes.
     """
     mode = st.radio(
         "Initial profile",
@@ -184,7 +100,6 @@ def initial_profile_selector(
     )
 
     if mode == "Use example default":
-        # Normalize in case the example did something partial
         return dict(game.normalize_profile(default_initial_profile))
 
     if mode == "All inactive":
@@ -211,23 +126,7 @@ def fixed_actions_from_forcing_set(
     forcing_set: Set[Any],
     target_profile: Mapping[Any, Action],
 ) -> Dict[Any, Action]:
-    """
-    Build a fixed_actions mapping from a forcing set and a target profile.
-
-    Parameters
-    ----------
-    forcing_set:
-        Set of nodes that will be fixed by external pressure.
-    target_profile:
-        Target profile that defines what action each forcing node
-        should be fixed to.
-
-    Returns
-    -------
-    dict
-        Mapping from node to action for use as fixed_actions in the
-        CascadeSimulator or PSNE solver.
-    """
+    """Build fixed_actions from a forcing set and a target profile."""
     fixed: Dict[Any, Action] = {}
     for node in forcing_set:
         if node in target_profile:
@@ -245,9 +144,7 @@ class CustomNetworkConfig:
 
 
 def mode_selector(key: str = "mode_selector") -> str:
-    """
-    Choose between building a custom network or using a preset example.
-    """
+    """Toggle between custom networks and preset examples."""
     return st.radio(
         "Mode",
         options=["Custom network", "Preset example"],
@@ -261,7 +158,7 @@ def render_custom_network_controls(
     default_num_nodes: int = 5,
 ) -> CustomNetworkConfig:
     """
-    Render sidebar inputs for a custom influence network using percentage thresholds.
+    Sidebar inputs for a custom network with percentage thresholds.
     """
     num_nodes = st.slider(
         "Number of nodes",
@@ -278,7 +175,6 @@ def render_custom_network_controls(
         "to switch to 1. Edge weights are relative influence strengths."
     )
 
-    # Thresholds editor
     thresholds_df = pd.DataFrame(
         {"node": node_labels, "threshold": [50.0] * num_nodes}
     )
@@ -290,7 +186,7 @@ def render_custom_network_controls(
                 "node", disabled=True
             ),
             "threshold": st.column_config.NumberColumn(
-                "threshold", min_value=0.0, step=0.1
+                "threshold", min_value=0.0, max_value=100.0, step=0.1
             ),
         },
         key=f"{key_prefix}_thresholds",
@@ -300,15 +196,26 @@ def render_custom_network_controls(
         .assign(node_index=lambda df: df["node"].astype(int))
         .sort_values("node_index")
     )
-    thresholds: List[float] = [
+    raw_thresholds: List[float] = [
         float(val) for val in sorted_thresholds["threshold"].tolist()
     ]
+    thresholds: List[float] = []
+    clamped = False
+    for val in raw_thresholds:
+        if val < 0.0:
+            thresholds.append(0.0)
+            clamped = True
+        elif val > 100.0:
+            thresholds.append(100.0)
+            clamped = True
+        else:
+            thresholds.append(val)
+    if clamped:
+        st.caption("Thresholds were clamped to the valid range [0, 100].")
 
-    # Adjacency editor
     adj_columns = node_labels
     adj_data = {"node": node_labels}
     for col in adj_columns:
-        # Default to a simple line: i -> i+1
         col_values = [0.0] * num_nodes
         for i in range(num_nodes - 1):
             if int(col) == i + 1:
@@ -330,7 +237,7 @@ def render_custom_network_controls(
         .sort_values("node_index")
     )
     adjacency_matrix: List[List[float]] = []
-    for idx, row in sorted_adj.iterrows():
+    for _, row in sorted_adj.iterrows():
         values = []
         for col in adj_columns:
             try:
@@ -340,7 +247,6 @@ def render_custom_network_controls(
             values.append(val)
         adjacency_matrix.append(values)
 
-    # Enforce zero diagonal
     for i in range(min(len(adjacency_matrix), num_nodes)):
         adjacency_matrix[i][i] = 0.0
 

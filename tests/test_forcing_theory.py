@@ -51,13 +51,14 @@ def test_forcing_sets_triangle_all_ones() -> None:
     finder = ForcingSetFinder(game)
 
     result = finder.minimal_forcing_sets(target_profile=target, max_size=3)
-    assert result.size == 2
+    # With 50% thresholds and weight-1 edges, any single zealot forces all ones.
+    assert result.size == 1
 
-    expected_pairs = {
-        frozenset({"0", "1"}),
-        frozenset({"0", "2"}),
-        frozenset({"1", "2"}),
+    expected_singletons = {
+        frozenset({"0"}),
+        frozenset({"1"}),
+        frozenset({"2"}),
     }
     forcing_sets = {frozenset(S) for S in result.forcing_sets}
 
-    assert forcing_sets == expected_pairs
+    assert forcing_sets == expected_singletons
