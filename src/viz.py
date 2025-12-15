@@ -44,8 +44,8 @@ def _compute_layout(
     elif layout == "kamada_kawai":
         try:
             pos = nx.kamada_kawai_layout(graph)
-        except ImportError:
-            # Kamada-Kawai needs SciPy; fall back to spring if it's missing.
+        except Exception:
+            # Kamada-Kawai needs SciPy; fall back to spring if it's missing or errors.
             pos = nx.spring_layout(graph, seed=seed)
     elif layout == "circular":
         pos = nx.circular_layout(graph)

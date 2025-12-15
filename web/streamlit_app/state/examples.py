@@ -62,6 +62,139 @@ def _kuran_star() -> ExampleDefinition:
     )
 
 
+def _kuran_complete() -> ExampleDefinition:
+    n = 6
+    thresholds = [50.0] * n
+    adjacency = [[0.0 for _ in range(n)] for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                adjacency[i][j] = 1.0
+
+    game = build_custom_game(
+        num_nodes=n,
+        thresholds=thresholds,
+        adjacency=adjacency,
+        directed=False,
+        label_prefix="",
+    )
+
+    default_forcing_set: Set[str] = {"0"}
+    default_initial_profile = game.empty_profile(active_value=0)
+    default_initial_profile["0"] = 1
+
+    description = (
+        "Fully connected Kuran baseline: uniform influence and 50% thresholds. "
+        "Shows the classic all-0 vs all-1 PSNE story."
+    )
+    notes = (
+        "Use the threshold nudge slider in the sidebar to see how a small change "
+        "can eliminate the lower PSNE and trigger a bandwagon."
+    )
+
+    return ExampleDefinition(
+        key="kuran_complete",
+        name="Kuran complete graph",
+        description=description,
+        game=game,
+        default_forcing_set=default_forcing_set,
+        default_initial_profile=default_initial_profile,
+        notes=notes,
+    )
+
+
+def _latent_bandwagon() -> ExampleDefinition:
+    # Mixed thresholds that admit multiple PSNE; small nudge can shift the outcome.
+    n = 5
+    thresholds = [40.0, 40.0, 60.0, 60.0, 60.0]
+    adjacency = [[0.0 for _ in range(n)] for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                adjacency[i][j] = 1.0
+
+    game = build_custom_game(
+        num_nodes=n,
+        thresholds=thresholds,
+        adjacency=adjacency,
+        directed=False,
+        label_prefix="",
+    )
+
+    default_forcing_set: Set[str] = {"0"}
+    default_initial_profile = game.empty_profile(active_value=0)
+    default_initial_profile["0"] = 1
+
+    description = (
+        "Latent bandwagon: two easy-threshold nodes (40%) and three stickier ones (60%) "
+        "on a complete graph. Multiple PSNE can exist; a small threshold drop can push "
+        "the network to full activation."
+    )
+    notes = (
+        "Start with no nudge and observe the PSNE list. Then lower thresholds slightly "
+        "to remove the low-activation PSNE."
+    )
+
+    return ExampleDefinition(
+        key="latent_bandwagon",
+        name="Latent bandwagon (complete)",
+        description=description,
+        game=game,
+        default_forcing_set=default_forcing_set,
+        default_initial_profile=default_initial_profile,
+        notes=notes,
+    )
+
+
+def _nonuniform_influence() -> ExampleDefinition:
+    # Hub-and-spoke with stronger hub influence.
+    nodes = ["H", "1", "2", "3", "4"]
+    n = len(nodes)
+    idx = {name: i for i, name in enumerate(nodes)}
+    adjacency = [[0.0 for _ in range(n)] for _ in range(n)]
+
+    def connect(u: str, v: str, w: float = 1.0) -> None:
+        i, j = idx[u], idx[v]
+        adjacency[i][j] = w
+        adjacency[j][i] = w
+
+    for leaf in ["1", "2", "3", "4"]:
+        connect("H", leaf, w=2.0)  # hub is twice as influential
+        connect(leaf, "H", w=1.0)
+
+    thresholds = [50.0, 50.0, 50.0, 50.0, 50.0]
+
+    game = build_custom_game(
+        num_nodes=n,
+        thresholds=thresholds,
+        adjacency=adjacency,
+        directed=False,
+        label_prefix="",
+    )
+
+    default_forcing_set: Set[str] = {"H"}
+    default_initial_profile = game.empty_profile(active_value=0)
+    default_initial_profile["H"] = 1
+
+    description = (
+        "Non-uniform influence: a hub (H) exerts stronger weight on leaves than leaves do on H. "
+        "Illustrates how weighted edges tilt cascades."
+    )
+    notes = (
+        "Compare forcing just H versus forcing a leaf. Try small threshold nudges to see shifts."
+    )
+
+    return ExampleDefinition(
+        key="nonuniform_influence",
+        name="Weighted hub-and-spoke",
+        description=description,
+        game=game,
+        default_forcing_set=default_forcing_set,
+        default_initial_profile=default_initial_profile,
+        notes=notes,
+    )
+
+
 def _mutual_pair() -> ExampleDefinition:
     game = build_custom_game(
         num_nodes=2,
@@ -192,6 +325,9 @@ def _two_communities_zealot() -> ExampleDefinition:
 def get_all_examples() -> List[ExampleDefinition]:
     """Return canonical examples in a stable order."""
     return [
+        _kuran_complete(),
+        _latent_bandwagon(),
+        _nonuniform_influence(),
         _kuran_star(),
         _mutual_pair(),
         _triangle(),

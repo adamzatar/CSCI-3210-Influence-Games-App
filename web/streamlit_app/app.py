@@ -61,6 +61,30 @@ def _profile_breakdown(profile: Dict[Any, Action]) -> Dict[str, List[Any]]:
     return {"active": active, "inactive": inactive}
 
 
+def _apply_threshold_nudge(game: InfluenceGame, nudge_percent: float) -> None:
+    """
+    Shift thresholds by a percentage offset while keeping percentages meaningful.
+
+    For each node with incoming influence, recompute theta using:
+    new_percent = clamp(original_percent + nudge_percent, 0, 100)
+    new_theta = (new_percent / 100) * incoming_weight
+
+    Nodes with zero incoming weight keep their theta.
+    """
+    if nudge_percent == 0.0:
+        return
+
+    for node in game.nodes:
+        incoming = _incoming_weight(game, node)
+        theta = game.threshold(node)
+        if incoming <= 0:
+            continue
+        percent = (theta / incoming) * 100.0 if theta != float("inf") else 100.0
+        new_percent = max(0.0, min(100.0, percent + nudge_percent))
+        new_theta = (new_percent / 100.0) * incoming
+        game.set_threshold(node, new_theta)
+
+
 def main() -> None:
     """Streamlit dashboard for the influence games project."""
     st.set_page_config(
@@ -129,12 +153,23 @@ def main() -> None:
             key="allow_cascade",
         )
 
+        nudge = st.slider(
+            "Threshold nudge (all nodes)",
+            min_value=-20.0,
+            max_value=20.0,
+            value=0.0,
+            step=1.0,
+            help="Apply a uniform percent offset to thresholds to explore latent bandwagons.",
+            key="threshold_nudge",
+        )
+
         target_profile = game.empty_profile(active_value=1)
         initial_profile = game.empty_profile(active_value=0)
         if selected_example is not None:
             initial_profile = dict(game.normalize_profile(selected_example.default_initial_profile))
         for node_id in forcing_set:
             initial_profile[node_id] = 1
+        _apply_threshold_nudge(game, nudge_percent=nudge)
 
     # Main content
     if selected_example is not None:
@@ -274,6 +309,12 @@ def main() -> None:
         psne_result = solver.enumerate_psne_bruteforce()
         psne_profiles = [game.normalize_profile(p) for p in psne_result.profiles]
         st.write(f"Found {len(psne_profiles)} PSNE (complete={psne_result.complete}).")
+        if len(psne_profiles) > 1:
+            active_counts = sorted(len([n for n, a in prof.items() if a == 1]) for prof in psne_profiles)
+            st.warning(
+                f"Bandwagon risk: multiple PSNE detected. Lowest activation = {active_counts[0]}, "
+                f"highest = {active_counts[-1]}. Try adjusting the threshold nudge to remove the lower PSNE."
+            )
         if psne_profiles:
             psne_rows = []
             for idx, prof in enumerate(psne_profiles, start=1):
@@ -307,6 +348,12 @@ def main() -> None:
                 st.code(f"Forcing set: {sorted(forcing)}")
         else:
             st.write("No forcing sets returned.")
+
+    st.subheader("Indicative nodes (Irfan)")
+    st.info(
+        "Irfan’s definition tracks the smallest set of nodes whose actions are unique to the target PSNE. "
+        "This view is not implemented yet in the app; use the forcing sets above to see which nodes you must fix."
+    )
 
 
 if __name__ == "__main__":
