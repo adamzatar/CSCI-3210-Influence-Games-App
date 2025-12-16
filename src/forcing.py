@@ -12,7 +12,12 @@ from .psne import PSNESolver, PSNEResult
 @dataclass
 class ForcingSetResult:
     """
-    Summary of a forcing set search.
+    Summary bucket for forcing-set searches.
+
+    forcing_sets: the minimal sets we found (could be empty).
+    size: size of those sets, or None if nothing forces the target.
+    complete: False only if a search limit stopped us early.
+    searched_subsets: how many subsets we actually checked.
     """
 
     forcing_sets: List[Set[Any]]
@@ -23,7 +28,10 @@ class ForcingSetResult:
 
 class ForcingSetFinder:
     """
-    Work with forcing sets and "most influential" nodes.
+    Work with forcing sets and our "most influential" definition.
+
+    A forcing set pins some nodes to their target actions so that
+    the target profile becomes the only PSNE in the restricted game.
     """
 
     def __init__(self, game: InfluenceGame, psne_solver: Optional[PSNESolver] = None) -> None:
@@ -42,7 +50,11 @@ class ForcingSetFinder:
         max_psne: Optional[int] = None,
     ) -> bool:
         """
-        Return True if forcing_set makes target_profile the unique PSNE of the restricted game.
+        Return True if forcing_set makes target_profile the unique PSNE.
+
+        We fix the listed nodes to their target actions and enumerate
+        PSNE of that restricted game. If exactly one PSNE exists and
+        it matches the target, the set forces the target.
         """
         fixed_nodes = set(forcing_set)
         target = self.game.normalize_profile(target_profile)
@@ -82,7 +94,11 @@ class ForcingSetFinder:
         max_psne_per_check: Optional[int] = 2,
     ) -> ForcingSetResult:
         """
-        Find smallest forcing sets for a target profile by checking subsets in order of size.
+        Find smallest forcing sets for a target profile by size.
+
+        Checks every subset of nodes in increasing order until it
+        finds a size that forces the target. Stops early if max_sets
+        or max_psne_per_check cut the search.
         """
         num_nodes = len(self._nodes)
         if max_size is None:
@@ -152,7 +168,7 @@ class ForcingSetFinder:
         max_psne_per_check: Optional[int] = 2,
     ) -> ForcingSetResult:
         """
-        Shortcut for target profile where everyone is active.
+        Shortcut when the target is the all-ones profile.
         """
         target = self.game.empty_profile(active_value=1)
         return self.minimal_forcing_sets(
@@ -170,7 +186,7 @@ class ForcingSetFinder:
         max_steps: int = 100,
     ) -> Tuple[Optional[Dict[Any, Action]], CascadeResult]:
         """
-        Run a cascade with a forcing set and see if it converges to the target.
+        Run synchronous updates with a forcing set and see if we hit the target.
         """
         target = self.game.normalize_profile(target_profile)
         fixed = {node: target[node] for node in set(forcing_set)}

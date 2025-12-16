@@ -65,6 +65,7 @@ def draw_profile_matplotlib(
     title: Optional[str] = None,
     layout_cache: Optional[LayoutCache] = None,
     layout: str = "spring",
+    percent_baseline: str = "incoming",
     ax: Optional[plt.Axes] = None,
 ) -> Tuple[plt.Figure, plt.Axes, LayoutCache]:
     """
@@ -153,20 +154,28 @@ def draw_profile_matplotlib(
     ys = [p[1] for p in positions.values()]
     center_x = float(np.mean(xs))
     center_y = float(np.mean(ys))
+    denom_population = max(len(game.nodes) - 1, 1)
 
     for node, (x, y) in positions.items():
         theta = game.threshold(node)
         action = normalized[node]
         incoming = incoming_weight.get(node, 0.0)
-        if incoming > 0 and theta != float("inf"):
-            percent = 100.0 * theta / incoming
-            percent_display = f"{percent:.1f}%"
-        elif incoming == 0 and theta == 0:
-            percent_display = "0% (no incoming)"
-        elif incoming == 0 and theta == float("inf"):
-            percent_display = "N/A (no incoming)"
+        if percent_baseline == "population":
+            if theta == float("inf"):
+                percent_display = "N/A"
+            else:
+                percent = 100.0 * theta / denom_population if denom_population > 0 else float("inf")
+                percent_display = f"{percent:.1f}%"
         else:
-            percent_display = "N/A"
+            if incoming > 0 and theta != float("inf"):
+                percent = 100.0 * theta / incoming
+                percent_display = f"{percent:.1f}%"
+            elif incoming == 0 and theta == 0:
+                percent_display = "0% (no incoming)"
+            elif incoming == 0 and theta == float("inf"):
+                percent_display = "N/A (no incoming)"
+            else:
+                percent_display = "N/A"
 
         text = f"threshold={theta:g} ({percent_display}), action={action}"
 
@@ -211,6 +220,7 @@ def draw_cascade_history_matplotlib(
     layout_cache: Optional[LayoutCache] = None,
     layout: str = "spring",
     max_steps_to_plot: int = 4,
+    percent_baseline: str = "incoming",
 ) -> Tuple[plt.Figure, LayoutCache]:
     """
     Draw a few frames from a cascade history side by side.
@@ -253,6 +263,7 @@ def draw_cascade_history_matplotlib(
             title=frame_title,
             layout_cache=layout_cache,
             layout=layout,
+            percent_baseline=percent_baseline,
             ax=axis,
         )
 

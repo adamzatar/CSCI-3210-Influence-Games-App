@@ -141,6 +141,7 @@ class CustomNetworkConfig:
     adjacency: List[List[float]]
     forcing_set: Set[str]
     directed: bool
+    threshold_baseline: str
 
 
 def mode_selector(key: str = "mode_selector") -> str:
@@ -256,6 +257,14 @@ def render_custom_network_controls(
         key=f"{key_prefix}_directed",
     )
 
+    threshold_baseline = st.radio(
+        "Thresholds are a percent of",
+        options=["Incoming influence weight", "Population size (n-1)"],
+        index=0,
+        key=f"{key_prefix}_baseline",
+        help="Choose how to interpret the percent thresholds.",
+    )
+
     forcing_set = st.multiselect(
         "Forced activists (always active)",
         options=node_labels,
@@ -269,4 +278,5 @@ def render_custom_network_controls(
         adjacency=adjacency_matrix,
         forcing_set=set(forcing_set),
         directed=directed,
+        threshold_baseline="population" if "Population" in threshold_baseline else "incoming",
     )

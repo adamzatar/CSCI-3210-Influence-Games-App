@@ -19,11 +19,13 @@ class NodeAttributes:
 
 class InfluenceGame:
     """
-    Linear threshold influence game on a graph.
+    Linear-threshold influence game on a graph.
 
-    Nodes choose 0 or 1. An edge weight measures how much one node
-    influences another. A node prefers 1 when the total incoming weight
-    from active neighbors reaches its threshold.
+    - Actions are 0 (inactive) or 1 (active/dissent).
+    - Edge weights measure how strongly a neighbor matters.
+    - A node prefers 1 when incoming active weight >= its threshold.
+    Directed graphs use predecessors as "influencers." Undirected graphs
+    treat edges as mutual influence.
     """
 
     def __init__(self, directed: bool = True) -> None:
@@ -37,7 +39,12 @@ class InfluenceGame:
     # ------------------------------------------------------------------
 
     def add_node(self, node: Any, threshold: float, label: Optional[str] = None) -> None:
-        """Add a node with a threshold and optional label."""
+        """
+        Add a node with an absolute threshold theta and an optional label.
+
+        theta is the raw number we compare against summed active weight.
+        In the UI we often derive theta from a percent; here it is already absolute.
+        """
         if node in self.G:
             raise ValueError(f"Node {node!r} already exists in the graph")
         if threshold < 0:
@@ -52,13 +59,17 @@ class InfluenceGame:
         threshold: float,
         labels: Optional[Mapping[Any, str]] = None,
     ) -> None:
-        """Add many nodes at once with the same threshold."""
+        """Add several nodes at once with the same absolute threshold."""
         for node in nodes:
             label = labels[node] if labels and node in labels else None
             self.add_node(node, threshold=threshold, label=label)
 
     def add_edge(self, u: Any, v: Any, weight: float = 1.0) -> None:
-        """Add an edge with a nonnegative weight."""
+        """
+        Add an edge with a nonnegative weight.
+
+        In directed games, u influences v. In undirected games, edges are mutual.
+        """
         if weight < 0:
             raise ValueError("Weights must be nonnegative in this model")
         if u not in self.G or v not in self.G:
@@ -141,6 +152,7 @@ class InfluenceGame:
     def empty_profile(self, active_value: Action = 0) -> Dict[Any, Action]:
         """
         Create a profile where every node plays the same action.
+        Handy for "everyone off" (0) or "everyone on" (1) baselines.
         """
         if active_value not in (0, 1):
             raise ValueError("Action must be 0 or 1")
@@ -149,6 +161,7 @@ class InfluenceGame:
     def normalize_profile(self, profile: Mapping[Any, Action]) -> Dict[Any, Action]:
         """
         Ensure every node has an explicit 0/1 action in the profile.
+        Missing nodes default to 0. Raises if any value is not 0 or 1.
         """
         normalized: Dict[Any, Action] = {}
         for node in self.nodes:
@@ -161,6 +174,9 @@ class InfluenceGame:
     def total_influence(self, profile: Mapping[Any, Action], target: Any) -> float:
         """
         Sum incoming weight from active neighbors of a target node.
+
+        Directed: use predecessors. Undirected: use neighbors.
+        If a neighbor plays 1, its edge weight adds to the total.
         """
         if target not in self.G:
             raise KeyError(f"Node {target!r} is not in the graph")
@@ -190,8 +206,9 @@ class InfluenceGame:
         """
         Compute the threshold best response for one node.
 
-        Nodes listed in fixed_actions are treated as externally fixed
-        and simply return that fixed action.
+        If the node is in fixed_actions, return that value.
+        Otherwise return 1 when incoming active weight >= theta, else 0.
+        Ties go to 1 (consistent with our PSNE and forcing definitions).
         """
         if fixed_actions and node in fixed_actions:
             value = fixed_actions[node]

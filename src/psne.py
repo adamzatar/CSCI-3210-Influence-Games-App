@@ -10,10 +10,12 @@ from .influence_game import Action, InfluenceGame
 @dataclass
 class PSNEResult:
     """
-    Holds the output of a PSNE search.
+    Tiny container for pure Nash results.
 
-    profiles: list of PSNE profiles found.
-    complete: True if the search space was fully explored.
+    profiles: every PSNE we found (normalized profiles).
+    complete: True when we actually checked all 2^n profiles
+      that respect any fixed actions. False only if a max limit
+      cut the search early.
     """
 
     profiles: List[Dict[Any, Action]]
@@ -22,7 +24,10 @@ class PSNEResult:
 
 class PSNESolver:
     """
-    Check and enumerate pure strategy Nash equilibria for an InfluenceGame.
+    Check and list pure strategy Nash equilibria (PSNE) for an InfluenceGame.
+
+    Uses the standard linear-threshold best response:
+    a node plays 1 when incoming active weight >= its theta.
     """
 
     def __init__(self, game: InfluenceGame) -> None:
@@ -35,7 +40,11 @@ class PSNESolver:
 
     def is_psne(self, profile: Mapping[Any, Action]) -> bool:
         """
-        Check if a profile is a PSNE in the unrestricted game.
+        Test if a profile is a PSNE with no fixed nodes.
+
+        Every node must already be playing its best response given
+        the current actions. This is the "revolution stops here"
+        notion we use throughout the project.
         """
         current_profile = self.game.normalize_profile(profile)
         for node in self._nodes:
@@ -50,7 +59,11 @@ class PSNESolver:
         fixed_actions: Mapping[Any, Action],
     ) -> bool:
         """
-        Check PSNE when some nodes are fixed (restricted game).
+        Test PSNE when some nodes are fixed to specific actions.
+
+        We use this when a forcing set pins certain players to 1.
+        Only non-fixed nodes have to best respond; fixed nodes must
+        already match the provided profile.
         """
         current_profile = self.game.normalize_profile(profile)
 
@@ -83,8 +96,11 @@ class PSNESolver:
         max_solutions: Optional[int] = None,
     ) -> PSNEResult:
         """
-        Enumerate PSNE by checking every profile (or every profile that
-        respects fixed_actions). Exponential, so only for small graphs.
+        Enumerate PSNE by checking every profile.
+
+        If fixed_actions is given, we only consider profiles that already
+        match those fixed nodes. We bail early if max_solutions is hit,
+        setting complete=False so callers know we truncated.
         """
         num_nodes = len(self._nodes)
         num_profiles = 1 << num_nodes  # 2^n
@@ -139,7 +155,10 @@ class PSNESolver:
         max_steps: int = 100,
     ) -> Tuple[Optional[Dict[Any, Action]], CascadeResult]:
         """
-        Run a cascade and see if the final profile is a PSNE.
+        Run synchronous best responses and see if the fixed point is a PSNE.
+
+        Handy when enumeration is too big: we still need to check whether the
+        dynamics landed on a true PSNE under the current fixed actions.
         """
         simulator = CascadeSimulator(self.game)
         cascade_result = simulator.run_until_fixpoint(

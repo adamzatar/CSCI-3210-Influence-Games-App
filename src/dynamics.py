@@ -9,12 +9,12 @@ from .influence_game import Action, InfluenceGame
 @dataclass
 class CascadeResult:
     """
-    Records a full cascade run.
+    Records a full cascade run (synchronous best responses).
 
-    history: profiles over time, starting at t=0.
-    converged: True if we hit a fixed point.
-    steps: number of update steps performed.
-    cycle_start/cycle_length: info about a detected cycle, else None.
+    history: list of profiles over time, starting at t=0.
+    converged: True if we hit a fixed point (same profile twice).
+    steps: how many update steps were taken.
+    cycle_start/cycle_length: where a cycle was detected, else None.
     """
 
     history: List[Dict[Any, Action]]
@@ -31,7 +31,10 @@ class CascadeResult:
 
 class CascadeSimulator:
     """
-    Synchronous best response dynamics for an InfluenceGame.
+    Synchronous best-response dynamics for an InfluenceGame.
+
+    This is the "what happens if everyone updates at once" view.
+    PSNE checking is exact; cascades are an optional dynamics lens.
     """
 
     def __init__(self, game: InfluenceGame) -> None:
@@ -63,7 +66,7 @@ class CascadeSimulator:
         """
         One synchronous best-response update.
 
-        Nodes listed in fixed_actions are held to that action.
+        Nodes in fixed_actions are pinned; others best-respond to the current profile.
         """
         current_profile = self._normalize_profile(profile)
         next_profile: Dict[Any, Action] = {}
@@ -86,6 +89,9 @@ class CascadeSimulator:
     ) -> CascadeResult:
         """
         Run synchronous best responses until a fixed point, a cycle, or max_steps.
+
+        This matches the Streamlit "cascade" behavior. If detect_cycles is True,
+        we also stop when we see a repeated profile.
         """
         history: List[Dict[Any, Action]] = []
         seen_profiles: Dict[Tuple[Action, ...], int] = {}

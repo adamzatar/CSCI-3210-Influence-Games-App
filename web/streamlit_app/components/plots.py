@@ -25,6 +25,7 @@ def show_profile_plot(
     title: Optional[str] = None,
     layout_cache: Optional[LayoutCache] = None,
     layout: str = "spring",
+    percent_baseline: str = "incoming",
     use_container_width: bool = True,
 ) -> LayoutCache:
     """Render a single profile with matplotlib inside Streamlit."""
@@ -36,6 +37,7 @@ def show_profile_plot(
         title=title,
         layout_cache=layout_cache,
         layout=layout,
+        percent_baseline=percent_baseline,
         ax=None,
     )
 
@@ -53,6 +55,7 @@ def show_cascade_history_plot(
     layout: str = "spring",
     max_steps_to_plot: int = 4,
     title: Optional[str] = None,
+    percent_baseline: str = "incoming",
     use_container_width: bool = True,
 ) -> LayoutCache:
     """Render several cascade frames inside Streamlit."""
@@ -63,6 +66,7 @@ def show_cascade_history_plot(
         layout_cache=layout_cache,
         layout=layout,
         max_steps_to_plot=max_steps_to_plot,
+        percent_baseline=percent_baseline,
     )
 
     if title is not None:
