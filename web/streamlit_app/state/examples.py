@@ -22,7 +22,7 @@ def get_presets() -> List[PresetDefinition]:
     return [
         PresetDefinition(
             key="baseline_kuran",
-            name="Complete graph (Kuran baseline)",
+            name="Complete graph",
             description="Fully connected, weight=1 edges. Threshold θ is the number of active neighbors required.",
             notes="Maps Kuran’s baseline into a complete graph with uniform influence. We highlight the lowest vs highest PSNE.",
         ),
