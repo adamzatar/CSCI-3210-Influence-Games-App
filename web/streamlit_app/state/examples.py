@@ -22,9 +22,9 @@ def get_presets() -> List[PresetDefinition]:
     return [
         PresetDefinition(
             key="baseline_kuran",
-            name="Baseline Kuran mapping",
+            name="Complete graph (Kuran baseline)",
             description="Fully connected, weight=1 edges. Threshold θ is the number of active neighbors required.",
-            notes="Matches Kuran’s baseline: uniform influence, everyone connected. We highlight the lowest vs highest PSNE.",
+            notes="Maps Kuran’s baseline into a complete graph with uniform influence. We highlight the lowest vs highest PSNE.",
         ),
         PresetDefinition(
             key="latent_bandwagon",
@@ -42,7 +42,7 @@ def get_presets() -> List[PresetDefinition]:
             key="weighted_hub",
             name="Non-uniform influence extension",
             description="Hub-and-spoke where the hub influences leaves more than leaves influence the hub.",
-            notes="Weights go beyond Kuran’s uniform baseline; helps illustrate a celebrity-style node.",
+            notes="Weights go beyond the uniform baseline; helps illustrate a celebrity-style node.",
         ),
     ]
 

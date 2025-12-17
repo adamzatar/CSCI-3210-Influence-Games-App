@@ -20,14 +20,11 @@ def test_irfan_mutual_pair_distinguishes_all_ones():
     solver = IrfanMostInfluential(game)
     target = game.empty_profile(active_value=1)
 
-    result = solver.minimal_distinguishing_sets(target_profile=target)
-    assert result.size == 1
+    combos = solver.get_most_influential(target)
+    assert combos
 
-    expected = {
-        frozenset({("0", 1)}),
-        frozenset({("1", 1)}),
-    }
-    actual = {frozenset(s) for s in result.sets}
+    expected = {frozenset({("0", 1)}), frozenset({("1", 1)})}
+    actual = {frozenset(c) for c in combos}
     assert actual == expected
 
 
@@ -50,6 +47,5 @@ def test_irfan_unique_psne_returns_empty_set():
     solver = IrfanMostInfluential(game)
     target = game.empty_profile(active_value=0)
 
-    result = solver.minimal_distinguishing_sets(target_profile=target)
-    assert result.size == 0
-    assert result.sets == [set()]
+    combos = solver.get_most_influential(target)
+    assert combos == [[]]

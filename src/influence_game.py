@@ -34,10 +34,6 @@ class InfluenceGame:
         self.G: nx.DiGraph | nx.Graph
         self.G = nx.DiGraph() if directed else nx.Graph()
 
-    # ------------------------------------------------------------------
-    # Graph construction
-    # ------------------------------------------------------------------
-
     def add_node(self, node: Any, threshold: float, label: Optional[str] = None) -> None:
         """
         Add a node with an absolute threshold theta and an optional label.
@@ -84,10 +80,6 @@ class InfluenceGame:
         """Add several edges that share the same weight."""
         for u, v in edges:
             self.add_edge(u, v, weight=default_weight)
-
-    # ------------------------------------------------------------------
-    # Basic accessors
-    # ------------------------------------------------------------------
 
     @property
     def directed(self) -> bool:
@@ -143,10 +135,6 @@ class InfluenceGame:
         if not self.G.has_edge(u, v):
             raise KeyError(f"Edge ({u!r}, {v!r}) does not exist")
         self.G[u][v]["weight"] = weight
-
-    # ------------------------------------------------------------------
-    # Profiles and influence
-    # ------------------------------------------------------------------
 
     def empty_profile(self, active_value: Action = 0) -> Dict[Any, Action]:
         """
@@ -218,10 +206,6 @@ class InfluenceGame:
         influence = self.total_influence(profile, node)
         theta = self.threshold(node)
         return 1 if influence >= theta else 0
-
-    # ------------------------------------------------------------------
-    # Indexing helpers
-    # ------------------------------------------------------------------
 
     def canonical_order(self) -> Tuple[List[Any], Dict[Any, int]]:
         """

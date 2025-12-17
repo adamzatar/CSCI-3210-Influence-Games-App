@@ -71,10 +71,8 @@ def main() -> None:
 
     st.title("CSCI 3210 Influence Games")
     st.markdown(
-        "Thresholds θ are constants in the same units as edge weights. "
-        "In the Kuran baseline (complete graph, weight=1), θ is the number of neighbors required to join. "
-        "Use the presets to mirror the report narrative: baseline, a latent bandwagon with an ε tweak, "
-        "a sparse structure, and a weighted hub extension."
+        "Pick a preset or enter a custom network. Thresholds θ are constants (same units as edge weights). "
+        "Baselines mirror the report: complete graph (Kuran baseline), latent bandwagon with ε, sparse star, weighted hub."
     )
 
     preset_options = get_presets()
@@ -91,7 +89,7 @@ def main() -> None:
 
         if mode == "Preset scenario":
             preset = st.selectbox(
-                "Scenario",
+                "Preset scenario",
                 options=preset_options,
                 format_func=lambda p: p.name,
                 key="preset_selector",
@@ -273,15 +271,15 @@ def main() -> None:
 
             forcing_set = set(custom_config.forcing_set)
 
-            st.caption(
-                "Custom networks are undirected; weights are taken directly from the matrix. "
-                "Thresholds are absolute numbers (same units as weights)."
+            st.info(
+                "Custom networks are undirected; weights come straight from the matrix. "
+                "Thresholds are absolute numbers."
             )
             description_text = (
                 f"Custom network with {custom_config.num_nodes} nodes and "
                 f"{len(list(game.edges))} edges."
             )
-            notes_text = "Add or edit weights/thresholds directly to reflect your scenario."
+            notes_text = "Edit thresholds/weights directly. Zero weight means no edge."
             threshold_shift = st.slider(
                 "Optional threshold tweak ε (subtract from every θ_i)",
                 min_value=0.0,
@@ -291,13 +289,6 @@ def main() -> None:
                 help="Uniform downward shift to explore sensitivity of equilibria.",
                 key="custom_shift",
             )
-
-        allow_cascade = st.checkbox(
-            "Illustrate best-response dynamics",
-            value=True,
-            help="Run synchronous best responses from the current profile with the forcing set pinned.",
-            key="allow_cascade",
-        )
 
         target_profile = game.empty_profile(active_value=1)
         initial_profile = game.empty_profile(active_value=0)
@@ -309,7 +300,8 @@ def main() -> None:
     if preset is not None:
         st.subheader(preset.name)
         st.markdown(description_text)
-        st.caption(notes_text)
+        if notes_text:
+            st.caption(notes_text)
     elif description_text:
         st.subheader("Custom setup")
         st.caption(description_text)
@@ -326,19 +318,12 @@ def main() -> None:
         target_profile=target_profile,
     )
 
-    if allow_cascade:
-        cascade_result = simulator.run_until_fixpoint(
-            initial_profile=initial_profile,
-            fixed_actions=fixed_actions if fixed_actions else None,
-            max_steps=25,
-            detect_cycles=True,
-        )
-    else:
-        cascade_result = CascadeResult(
-            history=[initial_profile],
-            converged=True,
-            steps=0,
-        )
+    cascade_result = simulator.run_until_fixpoint(
+        initial_profile=initial_profile,
+        fixed_actions=fixed_actions if fixed_actions else None,
+        max_steps=25,
+        detect_cycles=True,
+    )
 
     final_profile = cascade_result.final_profile
     breakdown = _profile_breakdown(final_profile)
@@ -349,10 +334,10 @@ def main() -> None:
         final_is_psne = solver.is_psne(final_profile)
 
     st.markdown("**Model summary**")
-    st.write(
-        f"Nodes: {len(nodes_list)}, Edges: {len(list(game.edges))}, "
-        f"Directed: {game.directed}"
-    )
+    cols_summary = st.columns(3)
+    cols_summary[0].metric("Nodes", len(nodes_list))
+    cols_summary[1].metric("Edges", len(list(game.edges)))
+    cols_summary[2].metric("Directed", "Yes" if game.directed else "No")
 
     summary_rows = []
     zero_incoming: List[Any] = []
@@ -360,24 +345,23 @@ def main() -> None:
         incoming = _incoming_weight(game, node)
         theta = game.threshold(node)
         ratio_display = (
-            f"{theta / incoming:.2f} of incoming"
+            f"{theta / incoming:.2f}× incoming"
             if incoming > 0
             else "N/A"
         )
         summary_rows.append(
             {
                 "node": node,
-                "incoming_weight": incoming,
-                "threshold_theta": theta,
-                "theta_vs_incoming": ratio_display,
+                "incoming": incoming,
+                "θ": theta,
+                "θ / incoming": ratio_display,
             }
         )
         if incoming == 0 and theta > 0:
             zero_incoming.append(node)
-    st.dataframe(summary_rows, hide_index=True)
+    st.dataframe(summary_rows, hide_index=True, use_container_width=True)
     st.caption(
-        "θ is the absolute incoming weight needed for a node to join. In the baseline complete graph with weight=1, "
-        "θ equals the number of active neighbors required."
+        "θ is the incoming weight needed to join. In a complete weight-1 graph, θ counts active neighbors."
     )
     if threshold_shift > 0:
         st.caption(f"Applied ε = {threshold_shift:.2f} to every θ_i (clamped at 0).")
@@ -389,7 +373,7 @@ def main() -> None:
     with st.expander("How this maps to the report", expanded=False):
         st.markdown(
             "- Model: linear-threshold best responses; action 1 = join the revolution.\n"
-            "- Thresholds: absolute θ_i in weight units. Baseline Kuran: complete graph, weight=1, so θ_i counts neighbors.\n"
+            "- Thresholds: absolute θ_i in weight units. Baseline mapping of Kuran: complete graph, weight=1, so θ_i counts neighbors.\n"
             "- PSNE: stable participation profiles; we list lowest vs highest PSNE.\n"
             "- Forcing sets: our “most influential nodes” that make all-ones the only PSNE when fixed.\n"
             "- Irfan’s indicative nodes: smallest set that uniquely signals a PSNE; not yet implemented here.\n"
@@ -478,12 +462,13 @@ def main() -> None:
 
         irfan_solver = IrfanMostInfluential(game)
         try:
-            irfan_result = irfan_solver.minimal_distinguishing_sets(target_profile=target_psne_profile)
-            if irfan_result.size is None:
+            combos = irfan_solver.get_most_influential(target_psne_profile)
+            if not combos:
                 st.info("No distinguishing set found among the PSNE list.")
             else:
-                st.write(f"Minimal indicative set size: {irfan_result.size}")
-                for combo in irfan_result.sets:
+                size = len(combos[0]) if combos else 0
+                st.write(f"Minimal indicative set size: {size}")
+                for combo in combos:
                     formatted = ", ".join([f"{node}={action}" for node, action in sorted(combo, key=lambda x: str(x[0]))]) or "Empty set"
                     st.code(formatted)
                 if not psne_complete:
@@ -491,11 +476,8 @@ def main() -> None:
         except ValueError as exc:
             st.warning(str(exc))
 
-    st.markdown("**Dynamics illustration (best responses)**")
-    st.markdown(
-        "Forced nodes stay at 1. If the dynamics toggle is on, everyone best-responds until the profile stops changing. "
-        "This is purely illustrative; PSNE is the equilibrium concept."
-    )
+    st.markdown("**Outcome from forcing set (best responses to stability)**")
+    st.caption("Forced nodes stay at 1; everyone else best-responds until the profile stops changing.")
 
     cols = st.columns(3)
     cols[0].metric("Active in outcome", len(breakdown["active"]))

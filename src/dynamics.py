@@ -41,10 +41,6 @@ class CascadeSimulator:
         self.game = game
         self._nodes, self._index = self.game.canonical_order()
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     def _normalize_profile(self, profile: Mapping[Any, Action]) -> Dict[Any, Action]:
         """Ensure every node has an explicit 0/1 action."""
         return self.game.normalize_profile(profile)
@@ -53,10 +49,6 @@ class CascadeSimulator:
         """Turn a profile into a tuple in canonical node order."""
         normalized = self._normalize_profile(profile)
         return tuple(normalized[node] for node in self._nodes)
-
-    # ------------------------------------------------------------------
-    # Core dynamics
-    # ------------------------------------------------------------------
 
     def step(
         self,
@@ -134,8 +126,6 @@ class CascadeSimulator:
 
 
 if __name__ == "__main__":
-    # Simple sanity check.
-    # Two node undirected graph: A - B, thresholds 1.0, weight 1.0.
     game = InfluenceGame(directed=False)
     game.add_node("A", threshold=1.0, label="A")
     game.add_node("B", threshold=1.0, label="B")

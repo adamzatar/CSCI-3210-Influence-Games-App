@@ -224,8 +224,6 @@ def kuran_style_star_example() -> InfluenceGame:
 
 
 if __name__ == "__main__":
-    # Tiny smoke checks for the helpers.
-
     complete_game = build_complete_symmetric_game(
         n=3,
         threshold=1.5,

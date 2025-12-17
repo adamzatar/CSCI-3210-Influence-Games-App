@@ -1,124 +1,123 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from itertools import combinations
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Set, Tuple
-
-from .influence_game import Action, InfluenceGame
-from .psne import PSNESolver
-
-
-@dataclass
-class IrfanResult:
-    """
-    Minimal subsets of node-action pairs that uniquely identify a PSNE.
-
-    sets: list of minimal distinguishing subsets (as sets of (node, action)).
-    size: size of those subsets, or None if no distinguishing set exists.
-    complete: True if we searched all subsets up to the first feasible size.
-    """
-
-    sets: List[Set[Tuple[Any, Action]]]
-    size: int | None
-    complete: bool
+from .influence_game import InfluenceGame
+from .psne import PSNEResult, PSNESolver
 
 
 class IrfanMostInfluential:
-    """
-    Find "most indicative" nodes under Professor Irfan's definition.
+    '''
+    Used to find the most influential nodes in a graph as defined by
+    Professor Irfan
+    '''
 
-    Definition: given the list of PSNE and a target PSNE, find the smallest set
-    of (node, action) assignments from the target whose values appear only in
-    that PSNE and no other PSNE. Observing those nodes' actions uniquely
-    identifies the target equilibrium.
-    """
-
-    def __init__(self, game: InfluenceGame) -> None:
+    def __init__(self, game: InfluenceGame):
         self.game = game
         self._nodes, self._index = self.game.canonical_order()
-        self._psne_profiles = self._enumerate_psne()
+        self.psne = self.generate_psne().profiles
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _enumerate_psne(self) -> List[Dict[Any, Action]]:
-        """Enumerate all PSNE for the current game."""
+    def generate_psne(self):
+        '''
+        Returns all PSNE in the game
+        '''
         solver = PSNESolver(self.game)
-        result = solver.enumerate_psne_bruteforce()
-        return [self.game.normalize_profile(p) for p in result.profiles]
+        return solver.enumerate_psne_bruteforce()
+    
+    def check_force_psne(self, desired_psne, list_profile):
+        '''
+        Returns whether the given action profile forces solely the desired psne
 
-    def _profile_pairs(self, profile: Mapping[Any, Action]) -> List[Tuple[Any, Action]]:
-        """Return profile as a list of (node, action) pairs in canonical order."""
-        normalized = self.game.normalize_profile(profile)
-        return [(node, normalized[node]) for node in self._nodes]
+        :param desired_psne: the psne we want
+        :param list_profile: the action profile being selected
+        '''
+        is_desired_valid = False
 
-    def _distinguishes(
-        self,
-        candidate: Sequence[Tuple[Any, Action]],
-        other_profile: Mapping[Any, Action],
-    ) -> bool:
-        """True if other_profile differs on at least one pair in candidate."""
-        normalized_other = self.game.normalize_profile(other_profile)
-        for node, action in candidate:
-            if normalized_other[node] != action:
-                return True
-        return False
+        # Iterate over each PSNE
+        for eq in self.psne:
+            forces_eq = True
 
-    # ------------------------------------------------------------------
-    # Core search
-    # ------------------------------------------------------------------
+            # Check if @list_profile forces the current PSNE
+            for node, action in list_profile:
+                if eq[node] != action:
+                    forces_eq = False
+            
+            # Handle cases where the PSNE is the desired case
+            if eq == desired_psne:
+                if forces_eq:
+                    is_desired_valid = True
+                else:
+                    return False
+            # If we force a non desired equilibria, return False
+            elif forces_eq:
+                return False
 
-    def minimal_distinguishing_sets(
-        self,
-        target_profile: Mapping[Any, Action],
-    ) -> IrfanResult:
-        """
-        Compute minimal subsets of node-action pairs that uniquely identify target_profile.
-        """
-        target_norm = self.game.normalize_profile(target_profile)
-        if target_norm not in self._psne_profiles:
-            raise ValueError("Target profile is not a PSNE of this game.")
+        return is_desired_valid
 
-        other_profiles = [p for p in self._psne_profiles if p != target_norm]
-        pairs = self._profile_pairs(target_norm)
+    def get_subsequences(self, lst):
+        '''
+        Gets subsequences of a list
 
-        # If target is the only PSNE, the empty set is sufficient.
-        if not other_profiles:
-            return IrfanResult(sets=[set()], size=0, complete=True)
+        :param list: the list we want the subsequences of
+        '''
+        if not lst:
+            return [[]]
+        
+        remaining = self.get_subsequences(lst[1:])
+        with_first = [[lst[0]] + r for r in remaining]
+        return remaining + with_first
 
-        minimal_sets: List[Set[Tuple[Any, Action]]] = []
-        complete = True
+    def profile_to_list(self, profile):
+        '''
+        Returns a list of tuples representing an action profile
+        
+        :param profile: the profile being converted to a list
+        '''
+        res = []
 
-        for size in range(1, len(pairs) + 1):
-            found_at_size = False
-            for combo in combinations(pairs, size):
-                # Skip combos that fail to exclude at least one other PSNE
-                if not all(self._distinguishes(combo, other) for other in other_profiles):
-                    continue
+        for key, value in profile.items():
+            res.append((key, value))
 
-                found_at_size = True
-                combo_set: Set[Tuple[Any, Action]] = set(combo)
+        return res
 
-                # Keep all combos of this minimal size
-                minimal_sets.append(combo_set)
+    def get_most_influential(self, desired_psne):
+        '''
+        Returns a list of all combinations of most influential nodes based on
+        Professor Irfan's definition
+        '''
+        res = []
 
-            if found_at_size:
-                return IrfanResult(sets=minimal_sets, size=size, complete=complete)
+        list_psne = self.profile_to_list(desired_psne)
+        list_profiles = self.get_subsequences(list_psne)
 
-        return IrfanResult(sets=[], size=None, complete=complete)
+        # Iterate over each potential list profile
+        for list_profile in list_profiles:
 
+            # Only check profiles that could be smaller or equal to our current best
+            if not res or len(res[0]) >= len(list_profile):
+                # If our profile forces the desired psne
+                if self.check_force_psne(desired_psne, list_profile):
+                    # If we found a smaller profile, make it our new res
+                    if not res or len(res[0]) > len(list_profile):
+                        res = [list_profile]
+                    # If we found a profile of equal length to our current best, add it to our results
+                    elif len(res[0]) == len(list_profile):
+                        res.append(list_profile)
 
+        return res
+    
 if __name__ == "__main__":
-    # Small sanity run on a triangle: PSNE = {all-0, all-1}.
+    from .influence_game import InfluenceGame
+
     game = InfluenceGame(directed=False)
-    for node in ["A", "B", "C"]:
-        game.add_node(node, threshold=1.0, label=node)
-    edges: Iterable[Tuple[str, str]] = [("A", "B"), ("A", "C"), ("B", "C")]
+    for node in ["A", "B", "C", "D"]:
+        game.add_node(node, threshold=1.5, label=node)
+
+    edges = [("A", "B"), ("A", "C"), ("B", "C")]
     game.add_edges_from(edges, default_weight=1.0)
 
     solver = IrfanMostInfluential(game)
-    psne = solver._psne_profiles
-    target = psne[1] if len(psne) > 1 else psne[0]
-    result = solver.minimal_distinguishing_sets(target_profile=target)
-    print("Minimal distinguishing sets:", result)
+    desired_psne = solver.generate_psne().profiles[0]
+
+    profile = {'A': 0, 'B': 1, 'C': 0}
+
+    profile = solver.get_subsequences(solver.profile_to_list({'A': 0, 'B': 1, 'C': 1}))[1]
+    print(solver.get_most_influential(desired_psne))

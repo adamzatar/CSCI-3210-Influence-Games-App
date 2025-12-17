@@ -34,37 +34,40 @@ class PSNESolver:
         self.game = game
         self._nodes, self._index = self.game.canonical_order()
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
+    def sum_influence(self, node, profile):
+        '''
+        Returns the total influence on @node based on @profile
+        
+        :param node: the node who's being influenced
+        :param profile: the current strategy profile
+        '''
+        influences = []
+        total = 0.0
 
-    def sum_influence(self, node: Any, profile: Mapping[Any, Action]) -> float:
-        """
-        Total incoming active weight on a node for a given profile.
+        # Get the proper set of influences
+        if self.game._directed:
+            influences = self.game.G.predecessors(node)
+        else:
+            influences = self.game.G.neighbors(node)
+        
+        # Sum up total influence
+        for influence in influences:
+            total += profile[influence] * self.game.G[influence][node]['weight']
 
-        Delegates to InfluenceGame.total_influence to keep semantics consistent.
-        """
-        normalized = self.game.normalize_profile(profile)
-        return self.game.total_influence(normalized, node)
+        return total
 
-    def best_response_value(
-        self,
-        node: Any,
-        profile: Mapping[Any, Action],
-        fixed_actions: Optional[Mapping[Any, Action]] = None,
-    ) -> Action:
-        """
-        Best response for a node under the current profile and optional fixed actions.
-
-        Uses InfluenceGame.best_response so we do not drift from the project's core semantics
-        (ties go to 1, thresholds are absolute).
-        """
-        normalized = self.game.normalize_profile(profile)
-        return self.game.best_response(normalized, node, fixed_actions=fixed_actions)
-
-    # ------------------------------------------------------------------
-    # PSNE checking
-    # ------------------------------------------------------------------
+    def best_response(self, node, profile):
+        '''
+        Returns the best response (0 or 1) for @node
+        
+        :param node: the node we want the best response of
+        :param profile: the profile we want the best response from
+        '''
+        total_influence = self.sum_influence(node, profile)
+        
+        if total_influence >= self.game.threshold(node):
+            return 1
+        return 0
 
     def is_psne(self, profile: Mapping[Any, Action]) -> bool:
         """
@@ -76,8 +79,8 @@ class PSNESolver:
         """
         current_profile = self.game.normalize_profile(profile)
         for node in self._nodes:
-            best = self.best_response_value(node, current_profile, fixed_actions=None)
-            if best != current_profile[node]:
+            best_response = self.best_response(node, current_profile)
+            if best_response != current_profile[node]:
                 return False
         return True
 
@@ -108,15 +111,11 @@ class PSNESolver:
         for node in self._nodes:
             if node in fixed_actions:
                 continue
-            best = self.best_response_value(node, current_profile, fixed_actions=fixed_actions)
+            best = self.game.best_response(current_profile, node, fixed_actions=fixed_actions)
             if best != current_profile[node]:
                 return False
 
         return True
-
-    # ------------------------------------------------------------------
-    # Brute force enumeration
-    # ------------------------------------------------------------------
 
     def enumerate_psne_bruteforce(
         self,
@@ -126,17 +125,13 @@ class PSNESolver:
         """
         Enumerate PSNE by checking every profile.
 
-        If fixed_actions is given, we only consider profiles that already
-        match those fixed nodes. We bail early if max_solutions is hit,
-        setting complete=False so callers know we truncated.
+        Returns a PSNE Result object containing a list of all PSNE profiles and whether it found all PSNE results
         """
         num_nodes = len(self._nodes)
         num_profiles = 1 << num_nodes  # 2^n
 
         psne_profiles: List[Dict[Any, Action]] = []
         complete = True
-
-        # Precompute fixed bits for pruning
         fixed_bits: Dict[int, Action] = {}
         if fixed_actions is not None:
             for node, value in fixed_actions.items():
@@ -159,10 +154,11 @@ class PSNESolver:
 
             profile = self.game.profile_from_bits(bits)
 
+            # If profile is PSNE, add it to our psne_profiles
             if fixed_actions is None:
                 ok = self.is_psne(profile)
             else:
-                ok = self.is_psne_with_fixed(profile, fixed_actions=fixed_actions)
+                ok = self.is_psne_with_fixed(profile, fixed_actions)
 
             if ok:
                 psne_profiles.append(profile)
@@ -171,10 +167,6 @@ class PSNESolver:
                     break
 
         return PSNEResult(profiles=psne_profiles, complete=complete)
-
-    # ------------------------------------------------------------------
-    # Dynamics assisted PSNE search
-    # ------------------------------------------------------------------
 
     def find_psne_via_dynamics(
         self,
@@ -208,7 +200,6 @@ class PSNESolver:
 
 
 if __name__ == "__main__":
-    # Sanity check brute force PSNE enumeration on a triangle.
     from .influence_game import InfluenceGame
 
     game = InfluenceGame(directed=False)

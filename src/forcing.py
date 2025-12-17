@@ -39,10 +39,6 @@ class ForcingSetFinder:
         self.psne_solver = psne_solver or PSNESolver(game)
         self._nodes, self._index = self.game.canonical_order()
 
-    # ------------------------------------------------------------------
-    # Core definition: does a set force a target profile?
-    # ------------------------------------------------------------------
-
     def forces_profile(
         self,
         forcing_set: Iterable[Any],
@@ -81,10 +77,6 @@ class ForcingSetFinder:
 
         only_profile = self.game.normalize_profile(result.profiles[0])
         return only_profile == target
-
-    # ------------------------------------------------------------------
-    # Minimal forcing sets by brute force
-    # ------------------------------------------------------------------
 
     def minimal_forcing_sets(
         self,
@@ -157,10 +149,6 @@ class ForcingSetFinder:
             searched_subsets=searched_subsets,
         )
 
-    # ------------------------------------------------------------------
-    # Convenience wrappers
-    # ------------------------------------------------------------------
-
     def minimal_forcing_sets_for_all_active(
         self,
         max_size: Optional[int] = None,
@@ -210,7 +198,6 @@ class ForcingSetFinder:
 
 
 if __name__ == "__main__":
-    # Small sanity example for forcing sets on a triangle.
     from .influence_game import InfluenceGame
 
     game = InfluenceGame(directed=False)
