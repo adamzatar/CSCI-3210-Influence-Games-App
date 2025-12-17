@@ -16,16 +16,24 @@ from src import build_custom_game
 from src.dynamics import CascadeResult, CascadeSimulator
 from src.forcing import ForcingSetFinder
 from src.influence_game import Action, InfluenceGame
+from src.irfan_most_influential import IrfanMostInfluential
 from src.psne import PSNESolver
 from web.streamlit_app.components.controls import (
     CustomNetworkConfig,
-    example_selector,
     fixed_actions_from_forcing_set,
     forcing_set_selector,
     mode_selector,
     render_custom_network_controls,
 )
 from web.streamlit_app.components.plots import show_profile_plot
+from web.streamlit_app.state.examples import (
+    PresetDefinition,
+    build_baseline_complete,
+    build_latent_bandwagon,
+    build_structure_extension,
+    build_weighted_hub,
+    get_presets,
+)
 
 
 def _incoming_weight(game: InfluenceGame, node: Any) -> float:
@@ -37,30 +45,6 @@ def _incoming_weight(game: InfluenceGame, node: Any) -> float:
     return sum(game.weight(neighbor, node) for neighbor in neighbors)
 
 
-def _threshold_percentages(game: InfluenceGame, baseline: str = "incoming") -> Dict[Any, float | None]:
-    """Convert absolute thresholds to percentages for display."""
-    percents: Dict[Any, float | None] = {}
-    denom_population = max(len(game.nodes) - 1, 1)
-    for node in game.nodes:
-        incoming = _incoming_weight(game, node)
-        theta = game.threshold(node)
-        if baseline == "population":
-            if theta == float("inf"):
-                percents[node] = None
-            else:
-                percents[node] = 100.0 * theta / denom_population if denom_population > 0 else None
-        else:
-            if incoming > 0 and theta != float("inf"):
-                percents[node] = 100.0 * theta / incoming
-            elif incoming <= 0 and theta == float("inf"):
-                percents[node] = None
-            elif incoming <= 0:
-                percents[node] = 0.0
-            else:
-                percents[node] = None
-    return percents
-
-
 def _profile_breakdown(profile: Dict[Any, Action]) -> Dict[str, List[Any]]:
     """Split a profile into sorted active/inactive node lists."""
     active = sorted([n for n, a in profile.items() if a == 1], key=str)
@@ -68,38 +52,13 @@ def _profile_breakdown(profile: Dict[Any, Action]) -> Dict[str, List[Any]]:
     return {"active": active, "inactive": inactive}
 
 
-def _apply_threshold_nudge(
-    game: InfluenceGame,
-    nudge_percent: float,
-    baseline: str = "incoming",
-) -> None:
-    """
-    Shift thresholds by a percentage offset while keeping percentages meaningful.
-
-    For each node with incoming influence, recompute theta using:
-    new_percent = clamp(original_percent + nudge_percent, 0, 100)
-    new_theta = (new_percent / 100) * incoming_weight
-
-    Nodes with zero incoming weight keep their theta.
-    """
-    baseline_denominator = max(len(game.nodes) - 1, 1)
-    if nudge_percent == 0.0:
+def _apply_threshold_shift(game: InfluenceGame, epsilon: float) -> None:
+    """Subtract epsilon from every threshold, clamped at zero."""
+    if epsilon <= 0:
         return
-
     for node in game.nodes:
-        incoming = _incoming_weight(game, node)
         theta = game.threshold(node)
-        if baseline == "population":
-            percent = (theta / baseline_denominator) * 100.0 if theta != float("inf") else 100.0
-            total = baseline_denominator
-        else:
-            if incoming <= 0:
-                continue
-            percent = (theta / incoming) * 100.0 if theta != float("inf") else 100.0
-            total = incoming
-        new_percent = max(0.0, min(100.0, percent + nudge_percent))
-        new_theta = (new_percent / 100.0) * total
-        game.set_threshold(node, new_theta)
+        game.set_threshold(node, max(0.0, theta - epsilon))
 
 
 def main() -> None:
@@ -110,13 +69,16 @@ def main() -> None:
         layout="wide",
     )
 
-    st.title("CSCI 3210 Influence Games Dashboard")
+    st.title("CSCI 3210 Influence Games")
     st.markdown(
-        "Explore Kuran-style threshold games, PSNE, and most influential nodes. "
-        "Custom networks use thresholds in percent of incoming influence."
+        "Thresholds θ are constants in the same units as edge weights. "
+        "In the Kuran baseline (complete graph, weight=1), θ is the number of neighbors required to join. "
+        "Use the presets to mirror the report narrative: baseline, a latent bandwagon with an ε tweak, "
+        "a sparse structure, and a weighted hub extension."
     )
 
-    selected_example = None
+    preset_options = get_presets()
+    preset: PresetDefinition | None = None
 
     # Sidebar controls
     with st.sidebar:
@@ -125,80 +87,234 @@ def main() -> None:
         mode = mode_selector()
         description_text = ""
         notes_text = ""
-        threshold_baseline = "incoming"
+        threshold_shift = 0.0
 
-        if mode == "Preset example":
-            selected_example = example_selector()
-            game = selected_example.game
-            threshold_baseline = "incoming"
+        if mode == "Preset scenario":
+            preset = st.selectbox(
+                "Scenario",
+                options=preset_options,
+                format_func=lambda p: p.name,
+                key="preset_selector",
+            )
+            notes_text = preset.notes
 
-            st.subheader("Dynamics configuration")
+            if preset.key == "baseline_kuran":
+                n = st.slider(
+                    "Number of nodes (complete graph)",
+                    min_value=3,
+                    max_value=12,
+                    value=6,
+                    key="baseline_n",
+                )
+                theta_max = max(n - 1, 1)
+                default_theta = min(max(theta_max / 2, 1), theta_max)
+                theta_value = st.slider(
+                    "Neighbors required (θ_i)",
+                    min_value=0.0,
+                    max_value=float(theta_max),
+                    value=float(default_theta),
+                    step=0.5,
+                    help="With weight=1 on every edge, θ counts how many active neighbors a node needs.",
+                    key="baseline_theta",
+                )
+                game = build_baseline_complete(n=n, theta=theta_value)
+                description_text = preset.description
+
+            elif preset.key == "latent_bandwagon":
+                n_total = st.slider(
+                    "Number of nodes (complete graph)",
+                    min_value=5,
+                    max_value=10,
+                    value=6,
+                    key="bandwagon_n",
+                )
+                n_low = st.slider(
+                    "Low-threshold actors",
+                    min_value=1,
+                    max_value=n_total - 1,
+                    value=min(2, n_total - 1),
+                    key="bandwagon_n_low",
+                    help="We keep at least one higher-threshold node to preserve the latent low PSNE.",
+                )
+                low_theta = st.slider(
+                    "Low θ (core group)",
+                    min_value=0.0,
+                    max_value=float(max(n_total - 1, 1)),
+                    value=1.0,
+                    step=0.5,
+                    key="bandwagon_low_theta",
+                )
+                high_theta = st.slider(
+                    "High θ (rest of the population)",
+                    min_value=float(low_theta),
+                    max_value=float(max(n_total - 1, 1)),
+                    value=4.0 if n_total >= 6 else float(max(n_total - 2, 2)),
+                    step=0.5,
+                    key="bandwagon_high_theta",
+                    help="Keep this above the number of low-θ actors to retain the low-participation PSNE.",
+                )
+                threshold_shift = st.slider(
+                    "Threshold tweak ε (subtract from every θ_i)",
+                    min_value=0.0,
+                    max_value=3.0,
+                    value=0.0,
+                    step=0.1,
+                    help="A small ε can erase the low PSNE and push the system to all-ones.",
+                    key="bandwagon_shift",
+                )
+                game = build_latent_bandwagon(
+                    n_total=n_total,
+                    n_low=n_low,
+                    low_theta=low_theta,
+                    high_theta=high_theta,
+                )
+                description_text = preset.description
+
+            elif preset.key == "structure_extension":
+                leaves = st.slider(
+                    "Number of leaves (star)",
+                    min_value=3,
+                    max_value=8,
+                    value=4,
+                    key="structure_leaves",
+                )
+                center_theta = st.slider(
+                    "Center threshold θ_center",
+                    min_value=0.0,
+                    max_value=float(leaves),
+                    value=min(3.0, float(leaves)),
+                    step=0.5,
+                    key="structure_center_theta",
+                )
+                leaf_theta = st.slider(
+                    "Leaf threshold θ_leaf",
+                    min_value=0.0,
+                    max_value=2.0,
+                    value=1.0,
+                    step=0.5,
+                    key="structure_leaf_theta",
+                )
+                game = build_structure_extension(
+                    leaves=leaves,
+                    center_theta=center_theta,
+                    leaf_theta=leaf_theta,
+                )
+                description_text = preset.description
+
+            else:
+                # weighted_hub
+                leaves = st.slider(
+                    "Number of leaves",
+                    min_value=3,
+                    max_value=8,
+                    value=4,
+                    key="weighted_leaves",
+                )
+                hub_out = st.slider(
+                    "Hub influence weight",
+                    min_value=1.0,
+                    max_value=4.0,
+                    value=2.0,
+                    step=0.1,
+                    key="weighted_hub_out",
+                )
+                leaf_out = st.slider(
+                    "Leaf influence weight (toward hub)",
+                    min_value=0.0,
+                    max_value=2.0,
+                    value=1.0,
+                    step=0.1,
+                    key="weighted_leaf_out",
+                )
+                hub_theta = st.slider(
+                    "Hub threshold θ_H",
+                    min_value=0.0,
+                    max_value=max(4.0, float(leaves)),
+                    value=2.5,
+                    step=0.5,
+                    key="weighted_hub_theta",
+                )
+                leaf_theta = st.slider(
+                    "Leaf threshold θ_leaf",
+                    min_value=0.0,
+                    max_value=3.0,
+                    value=1.5,
+                    step=0.5,
+                    key="weighted_leaf_theta",
+                )
+                game = build_weighted_hub(
+                    leaves=leaves,
+                    hub_out=hub_out,
+                    leaf_out=leaf_out,
+                    hub_theta=hub_theta,
+                    leaf_theta=leaf_theta,
+                )
+                description_text = preset.description
 
             forcing_set = forcing_set_selector(
                 game,
-                default_forcing_set=selected_example.default_forcing_set,
+                default_forcing_set=set(),
                 key="sidebar_forcing",
             )
-
-            description_text = selected_example.description
-            notes_text = selected_example.notes
         else:
             st.subheader("Custom network")
             custom_config: CustomNetworkConfig = render_custom_network_controls()
-            game = build_custom_game(
-                num_nodes=custom_config.num_nodes,
-                thresholds=custom_config.thresholds,
-                adjacency=custom_config.adjacency,
-                directed=custom_config.directed,
-                label_prefix="",
-                threshold_baseline=custom_config.threshold_baseline,
-            )
-            threshold_baseline = custom_config.threshold_baseline
+            try:
+                game = build_custom_game(
+                    num_nodes=custom_config.num_nodes,
+                    thresholds=custom_config.thresholds,
+                    adjacency=custom_config.adjacency,
+                    directed=False,
+                    label_prefix="",
+                )
+            except ValueError as exc:
+                st.error(f"Invalid custom network: {exc}")
+                return
 
-            # For custom networks, the "Forced activists" picker is the source of truth.
             forcing_set = set(custom_config.forcing_set)
 
             st.caption(
-                "Thresholds are percentages of total incoming influence. "
-                "Edge weights encode relative influence strength."
+                "Custom networks are undirected; weights are taken directly from the matrix. "
+                "Thresholds are absolute numbers (same units as weights)."
             )
             description_text = (
                 f"Custom network with {custom_config.num_nodes} nodes and "
                 f"{len(list(game.edges))} edges."
             )
+            notes_text = "Add or edit weights/thresholds directly to reflect your scenario."
+            threshold_shift = st.slider(
+                "Optional threshold tweak ε (subtract from every θ_i)",
+                min_value=0.0,
+                max_value=3.0,
+                value=0.0,
+                step=0.1,
+                help="Uniform downward shift to explore sensitivity of equilibria.",
+                key="custom_shift",
+            )
 
         allow_cascade = st.checkbox(
-            "Let influence spread via best responses",
+            "Illustrate best-response dynamics",
             value=True,
-            help="Uncheck to pin only the forced nodes at 1 without contagion.",
+            help="Run synchronous best responses from the current profile with the forcing set pinned.",
             key="allow_cascade",
-        )
-
-        nudge = st.slider(
-            "Threshold nudge (all nodes)",
-            min_value=-20.0,
-            max_value=20.0,
-            value=0.0,
-            step=1.0,
-            help="Uniform percent offset to explore latent bandwagons. 0 = original thresholds.",
-            key="threshold_nudge",
         )
 
         target_profile = game.empty_profile(active_value=1)
         initial_profile = game.empty_profile(active_value=0)
-        if selected_example is not None:
-            initial_profile = dict(game.normalize_profile(selected_example.default_initial_profile))
         for node_id in forcing_set:
             initial_profile[node_id] = 1
-        _apply_threshold_nudge(game, nudge_percent=nudge, baseline=threshold_baseline)
+        _apply_threshold_shift(game, epsilon=threshold_shift)
 
     # Main content
-    if selected_example is not None:
-        st.subheader(f"Selected example: {selected_example.name}")
+    if preset is not None:
+        st.subheader(preset.name)
         st.markdown(description_text)
         st.caption(notes_text)
     elif description_text:
+        st.subheader("Custom setup")
         st.caption(description_text)
+        if notes_text:
+            st.caption(notes_text)
 
     nodes_list = list(game.nodes)
     solver = PSNESolver(game)
@@ -232,37 +348,39 @@ def main() -> None:
     else:
         final_is_psne = solver.is_psne(final_profile)
 
-    st.subheader("Game summary")
+    st.markdown("**Model summary**")
     st.write(
         f"Nodes: {len(nodes_list)}, Edges: {len(list(game.edges))}, "
         f"Directed: {game.directed}"
     )
 
-    percents = _threshold_percentages(game, baseline=threshold_baseline)
     summary_rows = []
     zero_incoming: List[Any] = []
     for node in nodes_list:
         incoming = _incoming_weight(game, node)
         theta = game.threshold(node)
-        percent = percents.get(node)
-        percent_display = f"{percent:.1f}%" if percent is not None else "N/A"
+        ratio_display = (
+            f"{theta / incoming:.2f} of incoming"
+            if incoming > 0
+            else "N/A"
+        )
         summary_rows.append(
             {
                 "node": node,
                 "incoming_weight": incoming,
                 "threshold_theta": theta,
-                "threshold_percent": percent_display,
+                "theta_vs_incoming": ratio_display,
             }
         )
         if incoming == 0 and theta > 0:
             zero_incoming.append(node)
     st.dataframe(summary_rows, hide_index=True)
     st.caption(
-        "Thresholds shown as θ are absolute totals. Default: θ_i = (percent_i / 100) × incoming weight. "
-        "If you pick the population baseline, θ_i = (percent_i / 100) × (n-1). "
-        "Example: 50% with 3 units of incoming weight gives θ = 1.5. "
-        "If incoming weight is 0 and percent > 0, θ is infinite and the node cannot flip unless forced."
+        "θ is the absolute incoming weight needed for a node to join. In the baseline complete graph with weight=1, "
+        "θ equals the number of active neighbors required."
     )
+    if threshold_shift > 0:
+        st.caption(f"Applied ε = {threshold_shift:.2f} to every θ_i (clamped at 0).")
     if zero_incoming:
         st.warning(
             f"Nodes with no incoming influence and positive thresholds cannot flip without forcing: {sorted(zero_incoming)}"
@@ -270,16 +388,113 @@ def main() -> None:
 
     with st.expander("How this maps to the report", expanded=False):
         st.markdown(
-            "- Model: linear-threshold best responses on a directed/undirected graph. Action 1 means joining.\n"
-            "- Thresholds: set as percents in the sidebar; we store absolute θ. Edge weights are nonnegative influence strength.\n"
-            "- PSNE: stable action profiles under the threshold rule. Forcing sets fix nodes so the all-ones profile becomes the only PSNE.\n"
-            "- Cascades: optional synchronous updates to illustrate how a forcing set can propagate."
+            "- Model: linear-threshold best responses; action 1 = join the revolution.\n"
+            "- Thresholds: absolute θ_i in weight units. Baseline Kuran: complete graph, weight=1, so θ_i counts neighbors.\n"
+            "- PSNE: stable participation profiles; we list lowest vs highest PSNE.\n"
+            "- Forcing sets: our “most influential nodes” that make all-ones the only PSNE when fixed.\n"
+            "- Irfan’s indicative nodes: smallest set that uniquely signals a PSNE; not yet implemented here.\n"
+            "- Dynamics: optional best-response illustration; equilibrium is defined by PSNE, not by the dynamics."
         )
 
-    st.subheader("Outcome snapshot")
+    st.markdown("**PSNE results (no forcing)**")
+    if len(nodes_list) > 12:
+        st.info("Graph too large to enumerate PSNE (n > 12).")
+        psne_profiles: list[Dict[Any, Action]] = []
+        psne_complete = False
+    else:
+        psne_result = solver.enumerate_psne_bruteforce()
+        psne_profiles = [game.normalize_profile(p) for p in psne_result.profiles]
+        psne_complete = psne_result.complete
+        st.write(f"Found {len(psne_profiles)} PSNE (complete search={psne_complete}).")
+        if psne_profiles:
+            active_counts = [sum(1 for a in prof.values() if a == 1) for prof in psne_profiles]
+            lowest = min(active_counts)
+            highest = max(active_counts)
+            st.caption(
+                f"Lowest PSNE active count: {lowest}; highest: {highest}. "
+                "Under our equilibrium story, participation stalls at the lowest PSNE."
+            )
+            psne_rows = []
+            for idx, prof in enumerate(psne_profiles, start=1):
+                active_nodes = sorted([n for n, a in prof.items() if a == 1], key=str)
+                psne_rows.append(
+                    {
+                        "PSNE #": idx,
+                        "Active count": len(active_nodes),
+                        "Active nodes": ", ".join(active_nodes) if active_nodes else "None",
+                    }
+                )
+            st.dataframe(psne_rows, hide_index=True, use_container_width=True)
+            if highest == len(nodes_list):
+                st.caption("All-ones is a PSNE in this configuration.")
+            with st.expander("PSNE as raw profiles", expanded=False):
+                for idx, prof in enumerate(psne_profiles, start=1):
+                    st.code(f"PSNE {idx}: {prof}")
+        else:
+            st.write("No PSNE found for this configuration.")
+
+    st.markdown("**Forcing sets for all-ones (our definition)**")
+    forcing_result = forcing_finder.minimal_forcing_sets(
+        target_profile=target_profile,
+        max_size=len(nodes_list),
+    )
+    if forcing_result.size is None:
+        st.info("No forcing set found within the search limits.")
+    else:
+        st.write(f"Minimal forcing size: {forcing_result.size}")
+        if forcing_result.forcing_sets:
+            for forcing in forcing_result.forcing_sets:
+                st.code(f"Forcing set: {sorted(forcing)}")
+        else:
+            st.write("No forcing sets returned.")
+
+    st.markdown("**Irfan’s indicative nodes**")
+    if not psne_profiles:
+        st.info("Compute PSNE first to show indicative nodes.")
+    else:
+        all_ones_profile = game.empty_profile(active_value=1)
+        target_index = 0
+        for idx, prof in enumerate(psne_profiles):
+            if prof == all_ones_profile:
+                target_index = idx
+                break
+
+        psne_options = [
+            (
+                idx,
+                prof,
+                len([n for n, a in prof.items() if a == 1]),
+            )
+            for idx, prof in enumerate(psne_profiles)
+        ]
+        selected_label = st.selectbox(
+            "Target PSNE",
+            options=psne_options,
+            format_func=lambda tup: f"PSNE {tup[0]+1}: {tup[2]} active",
+            index=target_index,
+            key="irfan_target_psne",
+        )
+        _, target_psne_profile, _ = selected_label
+
+        irfan_solver = IrfanMostInfluential(game)
+        try:
+            irfan_result = irfan_solver.minimal_distinguishing_sets(target_profile=target_psne_profile)
+            if irfan_result.size is None:
+                st.info("No distinguishing set found among the PSNE list.")
+            else:
+                st.write(f"Minimal indicative set size: {irfan_result.size}")
+                for combo in irfan_result.sets:
+                    formatted = ", ".join([f"{node}={action}" for node, action in sorted(combo, key=lambda x: str(x[0]))]) or "Empty set"
+                    st.code(formatted)
+                if not psne_complete:
+                    st.caption("PSNE list may be incomplete for large graphs; indicative sets are based on the enumerated PSNE.")
+        except ValueError as exc:
+            st.warning(str(exc))
+
+    st.markdown("**Dynamics illustration (best responses)**")
     st.markdown(
-        "Forced nodes stay at 1. If cascades are enabled, everyone best-responds until stable. "
-        "This is the resulting profile."
+        "Forced nodes stay at 1. If the dynamics toggle is on, everyone best-responds until the profile stops changing. "
+        "This is purely illustrative; PSNE is the equilibrium concept."
     )
 
     cols = st.columns(3)
@@ -303,110 +518,31 @@ def main() -> None:
             "The snapshot shows the latest profile."
         )
 
-    st.subheader("Network snapshot")
     has_scipy = importlib.util.find_spec("scipy") is not None
     layout_options = {
-        "Organic (spring)": "spring",
+        "Spring": "spring",
         "Circle": "circular",
-        "Shell": "shell",
     }
     if has_scipy:
-        layout_options["Even spacing (Kamada-Kawai)"] = "kamada_kawai"
+        layout_options["Kamada-Kawai"] = "kamada_kawai"
     layout_choice = st.selectbox(
-        "Choose a layout for the plot",
+        "Layout for the plot",
         options=list(layout_options.keys()),
         index=0,
     )
     layout_name = layout_options[layout_choice]
 
-    if not has_scipy:
-        st.caption("Install 'scipy' to enable the Kamada-Kawai layout option.")
-
     show_profile_plot(
         game,
         profile=final_profile,
         forcing_set=forcing_set,
-        title="Final stable profile",
+        title="Outcome with current thresholds/forcing set",
         layout=layout_name,
-        percent_baseline=threshold_baseline,
     )
     st.caption(
         "Red = active, white = inactive, thick border = forced nodes. "
-        "This is the stable outcome for your current forcing set and thresholds."
+        "This is the outcome after applying the forcing set and optional dynamics."
     )
-
-    psne_tab, forcing_tab, dynamics_tab = st.tabs(
-        ["PSNE (no forcing)", "Forcing sets (all-ones target)", "Dynamics (optional)"]
-    )
-
-    with psne_tab:
-        st.caption("PSNE are stable profiles without fixing any nodes by hand.")
-        if len(nodes_list) > 12:
-            st.info("Graph too large to enumerate PSNE (n > 12).")
-            psne_profiles: list[Dict[Any, Action]] = []
-        else:
-            psne_result = solver.enumerate_psne_bruteforce()
-            psne_profiles = [game.normalize_profile(p) for p in psne_result.profiles]
-            st.write(f"Found {len(psne_profiles)} PSNE (complete={psne_result.complete}).")
-            if len(psne_profiles) > 1:
-                active_counts = sorted(len([n for n, a in prof.items() if a == 1]) for prof in psne_profiles)
-                st.warning(
-                    f"Multiple PSNE detected. Lowest activation = {active_counts[0]}, "
-                    f"highest = {active_counts[-1]}. Adjust thresholds to see if lower PSNE disappear."
-                )
-            if psne_profiles:
-                psne_rows = []
-                for idx, prof in enumerate(psne_profiles, start=1):
-                    active_nodes = sorted([n for n, a in prof.items() if a == 1], key=str)
-                    psne_rows.append(
-                        {
-                            "PSNE #": idx,
-                            "Active count": len(active_nodes),
-                            "Active nodes": ", ".join(active_nodes) if active_nodes else "None",
-                        }
-                    )
-                st.dataframe(psne_rows, hide_index=True, use_container_width=True)
-                with st.expander("Show PSNE as raw profiles", expanded=False):
-                    for idx, prof in enumerate(psne_profiles, start=1):
-                        st.code(f"PSNE {idx}: {prof}")
-            else:
-                st.write("No PSNE found for this configuration.")
-
-    with forcing_tab:
-        st.caption("Smallest sets to fix at 1 so all-ones is the only PSNE (our 'most influential' idea).")
-        forcing_result = forcing_finder.minimal_forcing_sets(
-            target_profile=target_profile,
-            max_size=len(nodes_list),
-        )
-        if forcing_result.size is None:
-            st.info("No forcing set found within the search limits.")
-        else:
-            st.write(f"Minimal forcing size: {forcing_result.size}")
-            if forcing_result.forcing_sets:
-                for forcing in forcing_result.forcing_sets:
-                    st.code(f"Forcing set: {sorted(forcing)}")
-            else:
-                st.write("No forcing sets returned.")
-        with st.expander("Irfan's indicative nodes", expanded=False):
-            st.info(
-                "Irfan’s definition is the smallest set of nodes whose actions uniquely identify the target PSNE. "
-                "Not implemented here; we focus on forcing sets to guarantee all-ones."
-            )
-
-    with dynamics_tab:
-        st.caption(
-            "Synchronous best responses starting from the initial profile with forced nodes pinned. "
-            "Stops at a fixed point or a detected cycle."
-        )
-        st.write(f"Converged: {cascade_result.converged}")
-        st.write(f"Steps: {cascade_result.steps}")
-        st.write("Final profile:", final_profile)
-        if not cascade_result.converged:
-            st.warning(
-                "Best-response updates did not reach a strict fixed point "
-                f"(stopped after {cascade_result.steps} steps). "
-                "The snapshot shows the latest profile."
-            )
 
 
 if __name__ == "__main__":

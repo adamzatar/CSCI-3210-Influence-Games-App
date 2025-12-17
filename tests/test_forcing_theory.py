@@ -5,10 +5,10 @@ from src.forcing import ForcingSetFinder
 
 
 def _build_mutual_pair() -> tuple:
-    """Two-node undirected 50% thresholds. Any single zealot should force all ones."""
+    """Two-node undirected, θ = 1 on each node. Any single zealot should force all ones."""
     game = build_custom_game(
         num_nodes=2,
-        thresholds=[50.0, 50.0],
+        thresholds=[1.0, 1.0],
         adjacency=[
             [0.0, 1.0],
             [1.0, 0.0],
@@ -21,10 +21,10 @@ def _build_mutual_pair() -> tuple:
 
 
 def _build_triangle() -> tuple:
-    """Undirected triangle, weight 1 edges, 50% thresholds (theta=1)."""
+    """Undirected triangle, weight 1 edges, θ = 1 (needs one active neighbor)."""
     game = build_custom_game(
         num_nodes=3,
-        thresholds=[50.0, 50.0, 50.0],
+        thresholds=[1.0, 1.0, 1.0],
         adjacency=[
             [0.0, 1.0, 1.0],
             [1.0, 0.0, 1.0],
@@ -53,7 +53,7 @@ def test_forcing_sets_mutual_pair_all_ones() -> None:
 
 def test_forcing_sets_triangle_all_ones() -> None:
     """
-    Claim: in the 50% triangle, any single node forced to 1 makes all-ones the unique PSNE.
+    Claim: in the θ = 1 triangle, any single node forced to 1 makes all-ones the unique PSNE.
     """
     game, target = _build_triangle()
     finder = ForcingSetFinder(game)

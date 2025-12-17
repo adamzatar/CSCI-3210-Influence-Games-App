@@ -43,7 +43,6 @@ class InfluenceGame:
         Add a node with an absolute threshold theta and an optional label.
 
         theta is the raw number we compare against summed active weight.
-        In the UI we often derive theta from a percent; here it is already absolute.
         """
         if node in self.G:
             raise ValueError(f"Node {node!r} already exists in the graph")

@@ -35,6 +35,34 @@ class PSNESolver:
         self._nodes, self._index = self.game.canonical_order()
 
     # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def sum_influence(self, node: Any, profile: Mapping[Any, Action]) -> float:
+        """
+        Total incoming active weight on a node for a given profile.
+
+        Delegates to InfluenceGame.total_influence to keep semantics consistent.
+        """
+        normalized = self.game.normalize_profile(profile)
+        return self.game.total_influence(normalized, node)
+
+    def best_response_value(
+        self,
+        node: Any,
+        profile: Mapping[Any, Action],
+        fixed_actions: Optional[Mapping[Any, Action]] = None,
+    ) -> Action:
+        """
+        Best response for a node under the current profile and optional fixed actions.
+
+        Uses InfluenceGame.best_response so we do not drift from the project's core semantics
+        (ties go to 1, thresholds are absolute).
+        """
+        normalized = self.game.normalize_profile(profile)
+        return self.game.best_response(normalized, node, fixed_actions=fixed_actions)
+
+    # ------------------------------------------------------------------
     # PSNE checking
     # ------------------------------------------------------------------
 
@@ -48,7 +76,7 @@ class PSNESolver:
         """
         current_profile = self.game.normalize_profile(profile)
         for node in self._nodes:
-            best = self.game.best_response(current_profile, node, fixed_actions=None)
+            best = self.best_response_value(node, current_profile, fixed_actions=None)
             if best != current_profile[node]:
                 return False
         return True
@@ -80,7 +108,7 @@ class PSNESolver:
         for node in self._nodes:
             if node in fixed_actions:
                 continue
-            best = self.game.best_response(current_profile, node, fixed_actions=fixed_actions)
+            best = self.best_response_value(node, current_profile, fixed_actions=fixed_actions)
             if best != current_profile[node]:
                 return False
 

@@ -21,6 +21,7 @@ from .influence_game import InfluenceGame, Action
 from .dynamics import CascadeSimulator, CascadeResult
 from .psne import PSNESolver, PSNEResult
 from .forcing import ForcingSetFinder, ForcingSetResult
+from .irfan_most_influential import IrfanMostInfluential, IrfanResult
 from .viz import (
     LayoutCache,
     draw_profile_matplotlib,
@@ -45,6 +46,8 @@ __all__ = [
     "PSNEResult",
     "ForcingSetFinder",
     "ForcingSetResult",
+    "IrfanMostInfluential",
+    "IrfanResult",
     "LayoutCache",
     "draw_profile_matplotlib",
     "draw_cascade_history_matplotlib",

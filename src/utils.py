@@ -148,17 +148,13 @@ def build_custom_game(
     *,
     directed: bool = True,
     label_prefix: str = "",
-    threshold_baseline: str = "incoming",
 ) -> InfluenceGame:
     """
-    Build a game from percentage thresholds and an adjacency matrix.
+    Build a game from absolute thresholds and an adjacency matrix.
 
-    Percentages p_i are converted to absolute theta_i.
-    - If threshold_baseline == "incoming": theta_i = (p_i/100)*incoming_weight_i.
-    - If threshold_baseline == "population": theta_i = (p_i/100)*(n-1).
-    If a node has no incoming weight and p_i > 0, its theta becomes infinity.
-    This matches the UI: users enter percents; we store absolute theta.
-    Edge weights are taken from the adjacency matrix, respecting directedness.
+    Thresholds are constants in the same units as edge weights. We do not
+    interpret them as percentages anywhere in the codebase.
+    Edge weights come directly from the adjacency matrix (diagonal ignored).
     """
     if num_nodes <= 0:
         raise ValueError("num_nodes must be positive")
@@ -169,14 +165,12 @@ def build_custom_game(
     for row in adjacency:
         if len(row) != num_nodes:
             raise ValueError("adjacency must be a num_nodes x num_nodes matrix")
-    for p in thresholds:
-        if p < 0 or p > 100:
-            raise ValueError("threshold percentages must be between 0 and 100")
+    for theta in thresholds:
+        if theta < 0:
+            raise ValueError("thresholds must be nonnegative")
 
     node_ids = [f"{label_prefix}{i}" if label_prefix else str(i) for i in range(num_nodes)]
     game = InfluenceGame(directed=directed)
-    if threshold_baseline not in ("incoming", "population"):
-        raise ValueError("threshold_baseline must be 'incoming' or 'population'")
 
     symmetric_weights: List[List[float]] = [
         [0.0 for _ in range(num_nodes)] for _ in range(num_nodes)
@@ -195,29 +189,8 @@ def build_custom_game(
                 symmetric_weights[i][j] = weight
                 symmetric_weights[j][i] = weight
 
-    absolute_thresholds: List[float] = []
-    population_total = max(num_nodes - 1, 1)
-    for i in range(num_nodes):
-        if directed:
-            incoming_total = sum(adjacency[j][i] for j in range(num_nodes) if j != i)
-        else:
-            incoming_total = sum(symmetric_weights[j][i] for j in range(num_nodes) if j != i)
-
-        percent = thresholds[i]
-        if threshold_baseline == "population":
-            theta = (percent / 100.0) * population_total
-        else:
-            if incoming_total <= 0:
-                if percent <= 0:
-                    theta = 0.0
-                else:
-                    theta = float("inf")
-            else:
-                theta = (percent / 100.0) * incoming_total
-        absolute_thresholds.append(theta)
-
     for i, node in enumerate(node_ids):
-        game.add_node(node, threshold=absolute_thresholds[i], label=node)
+        game.add_node(node, threshold=thresholds[i], label=node)
 
     if directed:
         for i in range(num_nodes):
