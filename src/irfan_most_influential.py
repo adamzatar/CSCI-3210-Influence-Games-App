@@ -37,7 +37,7 @@ class IrfanMostInfluential:
 
             # Check if @list_profile forces the current PSNE
             for node, action in list_profile:
-                if eq[node] != action:
+                if eq.get(node, None) != action:
                     forces_eq = False
             
             # Handle cases where the PSNE is the desired case
