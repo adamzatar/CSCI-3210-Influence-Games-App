@@ -14,7 +14,7 @@ import streamlit as st
 
 from src import build_custom_game
 from src.dynamics import CascadeResult, CascadeSimulator
-from src.forcing import ForcingSetFinder
+from src.most_influential import MostInfluential
 from src.influence_game import Action, InfluenceGame
 from src.irfan_most_influential import IrfanMostInfluential
 from src.psne import PSNESolver
@@ -310,7 +310,7 @@ def main() -> None:
 
     nodes_list = list(game.nodes)
     solver = PSNESolver(game)
-    forcing_finder = ForcingSetFinder(game)
+    most_influential = MostInfluential(game)
     simulator = CascadeSimulator(game)
 
     fixed_actions = fixed_actions_from_forcing_set(
@@ -372,13 +372,13 @@ def main() -> None:
 
     with st.expander("How this maps to the report", expanded=False):
         st.markdown(
-            "- Model: linear-threshold best responses; action 1 = join the revolution.\n"
-            "- Thresholds: absolute θ_i in weight units. Baseline mapping of Kuran: complete graph, weight=1, so θ_i counts neighbors.\n"
-            "- PSNE: stable participation profiles; we list lowest vs highest PSNE.\n"
-            "- Forcing sets: our “most influential nodes” that make all-ones the only PSNE when fixed.\n"
-            "- Irfan’s indicative nodes: smallest set that uniquely signals a PSNE; not yet implemented here.\n"
-            "- Dynamics: optional best-response illustration; equilibrium is defined by PSNE, not by the dynamics."
-        )
+        "- Model: linear-threshold best responses; action 1 = join the revolution.\n"
+        "- Thresholds: absolute θ_i in weight units. Baseline mapping of Kuran: complete graph, weight=1, so θ_i counts neighbors.\n"
+        "- PSNE: stable participation profiles; we list lowest vs highest PSNE.\n"
+        "- Most influential: smallest sets that, when forced to 1, trigger a best-response cascade to everyone active.\n"
+        "- Irfan’s indicative nodes: smallest set that uniquely signals a PSNE; not yet implemented here.\n"
+        "- Dynamics: optional best-response illustration; equilibrium is defined by PSNE, not by the dynamics."
+    )
 
     st.markdown("**PSNE results (no forcing)**")
     if len(nodes_list) > 12:
@@ -417,20 +417,15 @@ def main() -> None:
         else:
             st.write("No PSNE found for this configuration.")
 
-    st.markdown("**Forcing sets for all-ones (our definition)**")
-    forcing_result = forcing_finder.minimal_forcing_sets(
-        target_profile=target_profile,
-        max_size=len(nodes_list),
-    )
-    if forcing_result.size is None:
-        st.info("No forcing set found within the search limits.")
+    st.markdown("**Most influential nodes (cascade to all-ones)**")
+    mi_sets = most_influential.get_most_influential()
+    if not mi_sets:
+        st.info("No forcing sets found that drive everyone to 1 under best responses.")
     else:
-        st.write(f"Minimal forcing size: {forcing_result.size}")
-        if forcing_result.forcing_sets:
-            for forcing in forcing_result.forcing_sets:
-                st.code(f"Forcing set: {sorted(forcing)}")
-        else:
-            st.write("No forcing sets returned.")
+        size = len(mi_sets[0]) if mi_sets else 0
+        st.write(f"Minimal forcing size (cascade-based): {size}")
+        for forcing in mi_sets:
+            st.code(f"Set: {sorted(forcing)}")
 
     st.markdown("**Irfan’s indicative nodes**")
     if not psne_profiles:
